@@ -2,25 +2,27 @@
 #   Contains ops to build an input pipeline for tensorflow.
 #   APIs here are meant to evolve over time.
 
-licenses(["notice"])  # Apache 2.0
-
-exports_files(["LICENSE"])
-
-package(default_visibility = ["//visibility:public"])
-
+load("//tensorflow:tensorflow.bzl", "py_test")
 load(
     "//tensorflow:tensorflow.bzl",
-    "py_test",
-    "tf_custom_op_library",
     "tf_cc_tests",
+    "tf_custom_op_library",
     "tf_gen_op_libs",
     "tf_gen_op_wrapper_py",
     "tf_kernel_library",
 )
 load(
-    "//tensorflow/core:platform/default/build_config.bzl",
+    "//tensorflow/core/platform:default/build_config.bzl",
     "tf_kernel_tests_linkstatic",
 )
+load("//tensorflow:tensorflow.bzl", "tf_custom_op_py_library")
+
+package(
+    default_visibility = ["//visibility:public"],
+    licenses = ["notice"],  # Apache 2.0
+)
+
+exports_files(["LICENSE"])
 
 tf_custom_op_library(
     # TODO(sibyl-Mooth6ku,ptucker): Understand why 'python/ops/_' is needed and fix it.
@@ -51,10 +53,14 @@ tf_kernel_library(
     alwayslink = 1,
 )
 
-py_library(
+tf_custom_op_py_library(
     name = "input_pipeline_py",
     srcs = glob(["python/ops/*.py"]) + ["__init__.py"],
-    data = [":python/ops/_input_pipeline_ops.so"],
+    dso = [":python/ops/_input_pipeline_ops.so"],
+    kernels = [
+        ":input_pipeline_ops_kernels",
+        ":input_pipeline_ops_op_lib",
+    ],
     srcs_version = "PY2AND3",
     deps = [
         ":input_pipeline_ops",
@@ -62,9 +68,9 @@ py_library(
         "//tensorflow/python:client_testlib",
         "//tensorflow/python:errors",
         "//tensorflow/python:framework_for_generated_wrappers",
-        "//tensorflow/python:math_ops",
         "//tensorflow/python:platform",
         "//tensorflow/python:state_ops",
+        "//tensorflow/python:util",
         "//tensorflow/python:variable_scope",
         "//tensorflow/python:variables",
     ],
@@ -74,12 +80,14 @@ py_test(
     name = "input_pipeline_ops_test",
     size = "small",
     srcs = ["python/ops/input_pipeline_ops_test.py"],
+    python_version = "PY2",
     srcs_version = "PY2AND3",
     deps = [
         ":input_pipeline_py",
-        "//tensorflow:tensorflow_py",
-        "//tensorflow/python:framework_test_lib",
-        "//tensorflow/python:platform_test",
+        "//tensorflow/python:client_testlib",
+        "//tensorflow/python:constant_op",
+        "//tensorflow/python:dtypes",
+        "//tensorflow/python:errors",
         "//tensorflow/python:state_ops",
         "//tensorflow/python:variables",
     ],
@@ -107,15 +115,4 @@ tf_cc_tests(
         "//tensorflow/core:test_main",
         "//tensorflow/core:testlib",
     ],
-)
-
-filegroup(
-    name = "all_files",
-    srcs = glob(
-        ["**/*"],
-        exclude = [
-            "**/METADATA",
-            "**/OWNERS",
-        ],
-    ),
 )

@@ -26,11 +26,14 @@ from __future__ import print_function
 
 import argparse
 import sys
+import tempfile
 
-import tensorflow as tf
+import tensorflow
 
 from tensorflow.examples.tutorials.mnist import input_data
 from tensorflow.python import debug as tf_debug
+
+tf = tensorflow.compat.v1
 
 
 IMAGE_SIZE = 28
@@ -90,7 +93,8 @@ def main(_):
       return activations
 
   hidden = nn_layer(x, IMAGE_SIZE**2, HIDDEN_SIZE, "hidden")
-  y = nn_layer(hidden, HIDDEN_SIZE, NUM_LABELS, "softmax", act=tf.nn.softmax)
+  logits = nn_layer(hidden, HIDDEN_SIZE, NUM_LABELS, "output", tf.identity)
+  y = tf.nn.softmax(logits)
 
   with tf.name_scope("cross_entropy"):
     # The following line is the culprit of the bad numerical values that appear
@@ -99,12 +103,13 @@ def main(_):
     # call. A multiplication of the inf values with zeros leads to nans,
     # which is first in "cross_entropy/mul:0".
     #
-    # You can use clipping to fix this issue, e.g.,
-    #   diff = y_ * tf.log(tf.clip_by_value(y, 1e-8, 1.0))
+    # You can use the built-in, numerically-stable implementation to fix this
+    # issue:
+    #   diff = tf.nn.softmax_cross_entropy_with_logits(labels=y_, logits=logits)
 
-    diff = y_ * tf.log(y)
+    diff = -(y_ * tf.log(y))
     with tf.name_scope("total"):
-      cross_entropy = -tf.reduce_mean(diff)
+      cross_entropy = tf.reduce_mean(diff)
 
   with tf.name_scope("train"):
     train_step = tf.train.AdamOptimizer(FLAGS.learning_rate).minimize(
@@ -118,9 +123,20 @@ def main(_):
 
   sess.run(tf.global_variables_initializer())
 
+  if FLAGS.debug and FLAGS.tensorboard_debug_address:
+    raise ValueError(
+        "The --debug and --tensorboard_debug_address flags are mutually "
+        "exclusive.")
   if FLAGS.debug:
-    sess = tf_debug.LocalCLIDebugWrapperSession(sess, ui_type=FLAGS.ui_type)
-    sess.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
+    config_file_path = (tempfile.mktemp(".tfdbg_config")
+                        if FLAGS.use_random_config_path else None)
+    sess = tf_debug.LocalCLIDebugWrapperSession(
+        sess,
+        ui_type=FLAGS.ui_type,
+        config_file_path=config_file_path)
+  elif FLAGS.tensorboard_debug_address:
+    sess = tf_debug.TensorBoardDebugWrapperSession(
+        sess, FLAGS.tensorboard_debug_address)
 
   # Add this point, sess is a debug wrapper around the actual Session if
   # FLAGS.debug is true. In that case, calling run() will launch the CLI.
@@ -172,6 +188,23 @@ if __name__ == "__main__":
       nargs="?",
       const=True,
       default=False,
-      help="Use debugger to track down bad values during training")
+      help="Use debugger to track down bad values during training. "
+      "Mutually exclusive with the --tensorboard_debug_address flag.")
+  parser.add_argument(
+      "--tensorboard_debug_address",
+      type=str,
+      default=None,
+      help="Connect to the TensorBoard Debugger Plugin backend specified by "
+      "the gRPC address (e.g., localhost:1234). Mutually exclusive with the "
+      "--debug flag.")
+  parser.add_argument(
+      "--use_random_config_path",
+      type="bool",
+      nargs="?",
+      const=True,
+      default=False,
+      help="""If set, set config file path to a random file in the temporary
+      directory.""")
   FLAGS, unparsed = parser.parse_known_args()
-  tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
+  with tf.Graph().as_default():
+    tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)

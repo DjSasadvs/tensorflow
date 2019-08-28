@@ -21,18 +21,29 @@ limitations under the License.
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/op_def.pb.h"
 #include "tensorflow/core/framework/op_def_builder.h"
-#include "tensorflow/core/graph/equal_graph_def.h"
 #include "tensorflow/core/lib/core/status_test_util.h"
 #include "tensorflow/core/platform/test.h"
+#include "tensorflow/core/util/equal_graph_def.h"
 
 namespace tensorflow {
 namespace {
 
-Status FinalizeOpDef(OpDefBuilder b, OpDef* op_def) {
+Status FinalizeOpDef(const OpDefBuilder& b, OpDef* op_def) {
   OpRegistrationData op_reg_data;
   const Status s = b.Finalize(&op_reg_data);
   *op_def = op_reg_data.op_def;
   return s;
+}
+
+// We can create a Graph containing a namespaced Op
+TEST(AddToGraphTest, MakeGraphDefWithNamespacedOpName) {
+  OpList op_list;
+  TF_ASSERT_OK(FinalizeOpDef(OpDefBuilder("Project>SomeOp"), op_list.add_op()));
+  OpListOpRegistry registry(&op_list);
+
+  GraphDef graph_def;
+  TF_ASSERT_OK(NodeDefBuilder("node", "Project>SomeOp", &registry)
+                   .Finalize(graph_def.add_node()));
 }
 
 // Producer and consumer have default for an attr -> graph unchanged.
